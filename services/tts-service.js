@@ -13,19 +13,26 @@ class TextToSpeechService extends EventEmitter {
   async generate(gptReply, interactionCount) {
     const { partialResponseIndex, partialResponse } = gptReply;
 
-    if (!partialResponse) { return; }
+    if (!partialResponse) {
+      return;
+    }
+
+    // trim the • symbols for TTS processing
+    const ttsText = partialResponse
+      .replace(/•/g, '')
+      .trim();
 
     try {
       const response = await fetch(
         `https://api.deepgram.com/v1/speak?model=${process.env.VOICE_MODEL}&encoding=mulaw&sample_rate=8000&container=none`,
         {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Authorization': `Token ${process.env.DEEPGRAM_API_KEY}`,
-            'Content-Type': 'application/json',
+            Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            text: partialResponse,
+            text: ttsText,
           }),
         }
       );
@@ -34,17 +41,23 @@ class TextToSpeechService extends EventEmitter {
         try {
           const blob = await response.blob();
           const audioArrayBuffer = await blob.arrayBuffer();
-          const base64String = Buffer.from(audioArrayBuffer).toString('base64');
-          this.emit('speech', partialResponseIndex, base64String, partialResponse, interactionCount);
+          const base64String = Buffer.from(audioArrayBuffer).toString("base64");
+          this.emit(
+            "speech",
+            partialResponseIndex,
+            base64String,
+            partialResponse,
+            interactionCount
+          );
         } catch (err) {
           console.log(err);
         }
       } else {
-        console.log('Deepgram TTS error:');
+        console.log("Deepgram TTS error:");
         console.log(response);
       }
     } catch (err) {
-      console.error('Error occurred in TextToSpeech service');
+      console.error("Error occurred in TextToSpeech service");
       console.error(err);
     }
   }
