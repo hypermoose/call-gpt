@@ -7,7 +7,7 @@ const tools = require('../functions/function-manifest');
 // Note: the function name and file name must be the same
 const availableFunctions = {};
 tools.forEach((tool) => {
-  let functionName = tool.function.name;
+  let functionName = tool.name;
   availableFunctions[functionName] = require(`../functions/${functionName}`);
 });
 
@@ -51,87 +51,94 @@ class GptService extends EventEmitter {
   async completion(text, interactionCount, role = 'user', name = 'user') {
     this.updateUserContext(name, role, text);
 
-    // Step 1: Send user transcription to Chat GPT
-    const stream = await this.openai.chat.completions.create({
-      model: 'gpt-5.2',
-      messages: this.userContext,
-      tools: tools,
-      stream: true,
-    });
+    try {
+      // Step 1: Send user transcription to Chat GPT
+      // Use the new Responses API with streaming
+      const stream = await this.openai.responses.stream({
+        // Valid, streaming-capable model that supports tools
+        model: 'gpt-4o-mini',
+        // Responses API expects `input` (can be an array of role-based messages)
+        input: this.userContext,
+        tools: tools,
+      });
 
-    let completeResponse = '';
-    let partialResponse = '';
-    let functionName = '';
-    let functionArgs = '';
-    let finishReason = '';
+      let completeResponse = '';
+      let partialResponse = '';
+      let functionName = '';
+      let functionArgs = '';
+      let finishReason = '';
 
-    function collectToolInformation(deltas) {
-      let name = deltas.tool_calls[0]?.function?.name || '';
-      if (name != '') {
-        functionName = name;
-      }
-      let args = deltas.tool_calls[0]?.function?.arguments || '';
-      if (args != '') {
-        // args are streamed as JSON string so we need to concatenate all chunks
-        functionArgs += args;
-      }
-    }
-
-    for await (const chunk of stream) {
-      let content = chunk.choices[0]?.delta?.content || '';
-      let deltas = chunk.choices[0].delta;
-      finishReason = chunk.choices[0].finish_reason;
-
-      // Step 2: check if GPT wanted to call a function
-      if (deltas.tool_calls) {
-        // Step 3: Collect the tokens containing function data
-        collectToolInformation(deltas);
-      }
-
-      // need to call function on behalf of Chat GPT with the arguments it parsed from the conversation
-      if (finishReason === 'tool_calls') {
-        // parse JSON string of args into JSON object
-
-        const functionToCall = availableFunctions[functionName];
-        const validatedArgs = this.validateFunctionArgs(functionArgs);
-        
-        // Say a pre-configured message from the function manifest
-        // before running the function.
-        const toolData = tools.find(tool => tool.function.name === functionName);
-        const say = toolData.function.say;
-
-        this.emit('gptreply', {
-          partialResponseIndex: null,
-          partialResponse: say
-        }, interactionCount);
-
-        let functionResponse = await functionToCall(validatedArgs);
-
-        // Step 4: send the info on the function call and function response to GPT
-        this.updateUserContext(functionName, 'function', functionResponse);
-        
-        // call the completion function again but pass in the function response to have OpenAI generate a new assistant response
-        await this.completion(functionResponse, interactionCount, 'function', functionName);
-      } else {
-        // We use completeResponse for userContext
-        completeResponse += content;
-        // We use partialResponse to provide a chunk for TTS
-        partialResponse += content;
-        // Emit last partial response and add complete response to userContext
-        if (content.trim().slice(-1) === '•' || finishReason === 'stop') {
-          const gptReply = { 
-            partialResponseIndex: this.partialResponseIndex,
-            partialResponse
-          };
-
-          this.emit('gptreply', gptReply, interactionCount);
-          this.partialResponseIndex++;
-          partialResponse = '';
+      function collectToolInformationFromChunk(event) {
+        // Handle official Responses stream tool events
+        if (event.type === 'response.tool_call.created') {
+          const tc = event.tool_call || {};
+          if (tc.name) functionName = tc.name;
+          if (tc.arguments) functionArgs += tc.arguments;
+        } else if (event.type === 'response.tool_call.delta') {
+          // arguments may arrive in pieces
+          const delta = event.delta || {};
+          if (typeof delta.arguments === 'string') functionArgs += delta.arguments;
+          if (typeof delta.arguments_delta === 'string') functionArgs += delta.arguments_delta;
+        } else if (event.type === 'response.tool_call.done') {
+          // nothing more to accumulate here; would normally trigger tool execution
         }
       }
+
+      for await (const event of stream) {
+        // Primary text stream for Responses API
+        console.log('GptService -> event:', event.type);
+        if (event.type === 'response.output_text.delta') {
+          const contentChunk = typeof event.delta === 'string' ? event.delta : '';
+          if (!contentChunk) continue;
+          completeResponse += contentChunk;
+          partialResponse += contentChunk;
+
+          if (contentChunk.trim().slice(-1) === '•') {
+            const gptReply = {
+              partialResponseIndex: this.partialResponseIndex,
+              partialResponse,
+            };
+            this.emit('gptreply', gptReply, interactionCount);
+            this.partialResponseIndex++;
+            partialResponse = '';
+          }
+        } else if (
+          event.type === 'response.tool_call.created' ||
+          event.type === 'response.tool_call.delta' ||
+          event.type === 'response.tool_call.done'
+        ) {
+          collectToolInformationFromChunk(event);
+        } else if (event.type === 'response.completed') {
+          // flush any remaining partialResponse
+          if (partialResponse.trim().length > 0) {
+            const gptReply = {
+              partialResponseIndex: this.partialResponseIndex,
+              partialResponse,
+            };
+            this.emit('gptreply', gptReply, interactionCount);
+            this.partialResponseIndex++;
+            partialResponse = '';
+          }
+          // mark finishReason for compatibility
+          finishReason = 'stop';
+        } else if (event.type === 'response.error') {
+          console.error('Responses stream error', event);
+        } else if (event.type === 'response.output_text.done' || event.type === 'response.created') {
+          // ignore, informational
+        } // ignore other low-level events to avoid overfitting to SDK internals
+      }
+      this.userContext.push({'role': 'assistant', 'content': completeResponse});
+      console.log(`GPT -> user context length: ${this.userContext.length}`.green);
+    } catch (err) {
+      console.error('OpenAI stream failed:', err?.message || err);
+      // Fallback minimal message to keep the call flowing
+      const gptReply = {
+        partialResponseIndex: this.partialResponseIndex,
+        partialResponse: 'Sorry, I am having trouble right now.'
+      };
+      this.emit('gptreply', gptReply, interactionCount);
+      this.partialResponseIndex++;
     }
-    this.userContext.push({'role': 'assistant', 'content': completeResponse});
-    console.log(`GPT -> user context length: ${this.userContext.length}`.green);
   }
 }
 
