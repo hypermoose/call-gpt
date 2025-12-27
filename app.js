@@ -53,7 +53,6 @@ app.ws('/connection', (ws) => {
         callSid = msg.start.callSid;
         
         streamService.setStreamSid(streamSid);
-        gptService.setCallSid(callSid);
 
         // Set RECORDING_ENABLED='true' in .env to record calls
         recordingService(ttsService, callSid).then(() => {

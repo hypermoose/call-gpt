@@ -22,16 +22,10 @@ class GptService extends EventEmitter {
     super();
     this.openai = new OpenAI();
     this.userContext = [
-      { 'role': 'system', 'content': 'You are a helpful AI agent. You have a youthful and cheery personality. Keep your responses as brief as possible but make every attempt to keep the caller on the phone without being rude. Don\'t ask more than 1 question at a time. Don\'t make assumptions about what values to plug into functions. Ask for clarification if a user request is ambiguous. You must add a \'•\' symbol every 5 to 10 words at natural pauses where your response can be split for text to speech.' },
+      { 'role': 'system', 'content': 'You are a helpful AI agent. You have a youthful and cheery personality. Keep your responses as brief as possible. Don\'t ask more than 1 question at a time. Don\'t make assumptions about what values to plug into functions. Ask for clarification if a user request is ambiguous. You must add a \'•\' symbol at the end of every sentence or natural pause where your response can be split for text to speech without sounding chunky.' },
       { 'role': 'assistant', 'content': 'Hello! How can I help you?'},
     ],
     this.partialResponseIndex = 0;
-  }
-
-  // Add the callSid to the chat context in case
-  // ChatGPT decides to transfer the call.
-  setCallSid (callSid) {
-    this.userContext.push({ 'role': 'system', 'content': `callSid: ${callSid}` });
   }
 
   validateFunctionArgs (args) {
@@ -61,7 +55,7 @@ class GptService extends EventEmitter {
 
     const streamOnce = async () => {
       const stream = await this.openai.responses.stream({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.2',
         input: this.userContext,
         tools: tools,
       });
@@ -75,7 +69,7 @@ class GptService extends EventEmitter {
 
       for await (const event of stream) {
         // Debug the event for diagnosis
-        console.log('GptService -> event:', JSON.stringify(event));
+        console.log('GptService -> event:', JSON.stringify(event.type));
         if (event.type === 'response.output_text.delta') {
           const contentChunk = typeof event.delta === 'string' ? event.delta : '';
           if (!contentChunk) continue;
