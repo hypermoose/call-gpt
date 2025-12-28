@@ -22,9 +22,25 @@ class GptService extends EventEmitter {
     super();
     this.openai = new OpenAI();
     this.userContext = [
-      { 'role': 'system', 'content': 'You are a helpful AI agent. You have a youthful and cheery personality. Keep your responses as brief as possible. Don\'t ask more than 1 question at a time. Don\'t make assumptions about what values to plug into functions. Ask for clarification if a user request is ambiguous. You must add a \'•\' symbol at the end of every sentence or natural pause where your response can be split for text to speech without sounding chunky.' },
-      { 'role': 'assistant', 'content': 'Hello! How can I help you?'},
-    ],
+      {
+        role: "system",
+        content: `
+You are a helpful AI agent.
+Keep responses brief.
+Ask at most one question.
+Do not assume values.
+Use only plain text.
+Do not use markdown, bullet formatting, or code blocks.
+Do not include URLs, citations, or source references.
+If information comes from web search, rewrite it as unattributed plain text.
+End every sentence or natural pause with the symbol •
+`.trim(),
+      },
+      {
+        role: "assistant",
+        content: "Hello! How can I help you?",
+      },
+    ];
     this.partialResponseIndex = 0;
   }
 
@@ -101,19 +117,25 @@ class GptService extends EventEmitter {
            
           // Break out to execute the function immediately
           break;
-        } else if (event.type === 'response.completed') {
+        } else if (event.type === "response.web_search_call.searching") {
+          this.emit("gptreply", {
+            partialResponseIndex: null,
+            partialResponse: 'searching the web•'
+          }, interactionCount);
+
+        } else if (event.type === "response.completed") {
           // flush any remaining partialResponse
           if (partialResponse.trim().length > 0) {
             const gptReply = {
               partialResponseIndex: this.partialResponseIndex,
               partialResponse,
             };
-            this.emit('gptreply', gptReply, interactionCount);
+            this.emit("gptreply", gptReply, interactionCount);
             this.partialResponseIndex++;
-            partialResponse = '';
+            partialResponse = "";
           }
-        } else if (event.type === 'response.error') {
-          console.error('Responses stream error', event);
+        } else if (event.type === "response.error") {
+          console.error("Responses stream error", event);
         }
       }
 
