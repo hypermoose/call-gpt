@@ -14,6 +14,11 @@ class StreamService extends EventEmitter {
     this.streamSid = streamSid;
   }
 
+  reset() {
+    this.expectedAudioIndex = 0;
+    this.audioBuffer = {};
+  }
+
   buffer (index, audio) {
     // Escape hatch for intro message, which doesn't have an index
     if(index === null) {

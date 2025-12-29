@@ -82,7 +82,9 @@ Do not return raw all-caps acronyms without periods unless they are pronounced a
         }
       } finally {
         this.activeControllers.clear();
+        this.partialResponseIndex = 0;
       }
+      this.emit("abort");
       return;
     }
 
@@ -150,9 +152,10 @@ Do not return raw all-caps acronyms without periods unless they are pronounced a
             break;
           } else if (event.type === "response.web_search_call.searching") {
             this.emit("gptreply", {
-              partialResponseIndex: null,
+              partialResponseIndex: this.partialResponseIndex,
               partialResponse: 'searching the web•'
             }, interactionCount);
+            this.partialResponseIndex++;
 
           } else if (event.type === "response.completed") {
             // flush any remaining partialResponse

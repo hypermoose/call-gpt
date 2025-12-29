@@ -94,6 +94,18 @@ app.ws('/connection', (ws) => {
       console.log(`Interaction ${icount}: GPT -> TTS: ${gptReply.partialResponse}`.green );
       ttsService.generate(gptReply, icount);
     });
+
+    gptService.on('abort', () => {
+      console.log('GPT Service aborted current completions.'.red);
+      streamService.reset();
+      ttsService.reset();
+      ws.send(
+        JSON.stringify({
+          streamSid,
+          event: "clear",
+        })
+      );
+    });
   
     ttsService.on('speech', (responseIndex, audio, label, icount) => {
       console.log(`Interaction ${icount}: TTS -> TWILIO: ${label}`.blue);

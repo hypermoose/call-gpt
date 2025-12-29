@@ -8,6 +8,13 @@ class TextToSpeechService extends EventEmitter {
     super();
     this.nextExpectedIndex = 0;
     this.speechBuffer = {};
+    this.isAborted = false;
+  }
+
+  reset() {
+    this.nextExpectedIndex = 0;
+    this.speechBuffer = {};
+    this.isAborted = true;
   }
 
   async generate(gptReply, interactionCount) {
@@ -16,6 +23,8 @@ class TextToSpeechService extends EventEmitter {
     if (!partialResponse) {
       return;
     }
+
+    this.isAborted = false;
 
     // trim the • symbols for TTS processing
     const ttsText = partialResponse
@@ -42,13 +51,17 @@ class TextToSpeechService extends EventEmitter {
           const blob = await response.blob();
           const audioArrayBuffer = await blob.arrayBuffer();
           const base64String = Buffer.from(audioArrayBuffer).toString("base64");
-          this.emit(
-            "speech",
-            partialResponseIndex,
-            base64String,
-            partialResponse,
-            interactionCount
-          );
+          if (!this.isAborted) {
+            this.emit(
+              "speech",
+              partialResponseIndex,
+              base64String,
+              partialResponse,
+              interactionCount
+            );
+          } else {
+            console.log("TTS generation aborted, not emitting speech.".red);
+          }
         } catch (err) {
           console.log(err);
         }
