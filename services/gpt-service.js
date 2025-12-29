@@ -21,6 +21,8 @@ class GptService extends EventEmitter {
   constructor() {
     super();
     this.openai = new OpenAI();
+    // Track all in-flight response streams so we can abort them on demand
+    this.activeControllers = new Set();
     this.userContext = [
       {
         role: "system",
@@ -34,6 +36,13 @@ Do not use markdown, bullet formatting, or code blocks.
 Do not include URLs, citations, or source references.
 If information comes from web search, rewrite it as unattributed plain text.
 End every sentence or natural pause with the symbol •
+
+Text normalization rules for speech output:
+Avoid abbreviations and TLAs whenever a full phrase is reasonable to say out loud.
+Expand common abbreviations into their spoken form, for example use “for example” instead of “e.g.” and “that is” instead of “i.e.”
+When a term is a proper name that is conventionally written as an all-caps acronym and spoken letter by letter, keep the acronym but format it with periods between letters so it is spoken clearly, for example write N.B.A. or W.B.A.
+Do not invent new abbreviations.
+Do not return raw all-caps acronyms without periods unless they are pronounced as words, such as NASA.
 `.trim(),
       },
       {
@@ -57,9 +66,7 @@ End every sentence or natural pause with the symbol •
   }
 
   updateUserContext(name, role, text) {
-    if (role === "tool") {
-      this.userContext.push({ 'role': role, 'tool_call_id': name, 'content': text });
-    } else if (name !== 'user') {
+    if (name !== 'user') {
       this.userContext.push({ 'role': role, 'name': name, 'content': text });
     } else {
       this.userContext.push({ 'role': role, 'content': text });
@@ -67,14 +74,28 @@ End every sentence or natural pause with the symbol •
   }
 
   async completion(text, interactionCount, role = 'user', name = 'user') {
+    // If caller says only "stop", abort any in-flight streams and return
+    if (typeof text === 'string' && text.trim().toLowerCase() === 'stop.') {
+      try {
+        for (const controller of this.activeControllers) {
+          try { controller.abort(); } catch (_) {}
+        }
+      } finally {
+        this.activeControllers.clear();
+      }
+      return;
+    }
+
     this.updateUserContext(name, role, text);
 
     const streamOnce = async () => {
+      const abortController = new AbortController();
+      this.activeControllers.add(abortController);
       const stream = await this.openai.responses.stream({
         model: 'gpt-5.2',
         input: this.userContext,
         tools: tools,
-      });
+      }, { signal: abortController.signal });
 
       let completeResponse = '';
       let partialResponse = '';
@@ -83,60 +104,74 @@ End every sentence or natural pause with the symbol •
       let functionCallId = '';
       let functionCallDone = false;
 
-      for await (const event of stream) {
-        // Debug the event for diagnosis
-        console.log('GptService -> event:', JSON.stringify(event.type));
-        if (event.type === 'response.output_text.delta') {
-          const contentChunk = typeof event.delta === 'string' ? event.delta : '';
-          if (!contentChunk) continue;
-          completeResponse += contentChunk;
-          partialResponse += contentChunk;
+      try {
+        for await (const event of stream) {
+          // Immediately throw if this stream was aborted
+          if (abortController?.signal) {
+            if (typeof abortController.signal.throwIfAborted === 'function') {
+              try { abortController.signal.throwIfAborted(); } catch (e) { throw e; }
+            } else if (abortController.signal.aborted) {
+              const err = new Error('Aborted');
+              err.name = 'AbortError';
+              throw err;
+            }
+          }
+          // Debug the event for diagnosis
+          console.log('GptService -> event:', JSON.stringify(event.type));
+          if (event.type === 'response.output_text.delta') {
+            const contentChunk = typeof event.delta === 'string' ? event.delta : '';
+            if (!contentChunk) continue;
+            completeResponse += contentChunk;
+            partialResponse += contentChunk;
 
-          if (contentChunk.trim().slice(-1) === '•') {
-            const gptReply = {
-              partialResponseIndex: this.partialResponseIndex,
-              partialResponse,
-            };
-            this.emit('gptreply', gptReply, interactionCount);
-            this.partialResponseIndex++;
-            partialResponse = '';
-          }
-        } else if (event.type === 'response.output_item.added') {
-          const item = event.item || {};
-          if (item.type === 'function_call' && item.name && !functionName) {
-            functionName = item.name;
-          }
-          if (item.type === 'function_call' && item.call_id && !functionCallId) {
-            functionCallId = item.call_id;
-          }
-        } else if (event.type === 'response.function_call_arguments.delta') {
-          if (typeof event.delta === 'string') functionArgs += event.delta;
-          if (typeof event.arguments_delta === 'string') functionArgs += event.arguments_delta;
-        } else if (event.type === 'response.function_call_arguments.done') {
-          functionCallDone = true;
-           
-          // Break out to execute the function immediately
-          break;
-        } else if (event.type === "response.web_search_call.searching") {
-          this.emit("gptreply", {
-            partialResponseIndex: null,
-            partialResponse: 'searching the web•'
-          }, interactionCount);
+            if (contentChunk.trim().slice(-1) === '•') {
+              const gptReply = {
+                partialResponseIndex: this.partialResponseIndex,
+                partialResponse,
+              };
+              this.emit('gptreply', gptReply, interactionCount);
+              this.partialResponseIndex++;
+              partialResponse = '';
+            }
+          } else if (event.type === 'response.output_item.added') {
+            const item = event.item || {};
+            if (item.type === 'function_call' && item.name && !functionName) {
+              functionName = item.name;
+            }
+            if (item.type === 'function_call' && item.call_id && !functionCallId) {
+              functionCallId = item.call_id;
+            }
+          } else if (event.type === 'response.function_call_arguments.delta') {
+            if (typeof event.delta === 'string') functionArgs += event.delta;
+            if (typeof event.arguments_delta === 'string') functionArgs += event.arguments_delta;
+          } else if (event.type === 'response.function_call_arguments.done') {
+            functionCallDone = true;
+            // Break out to execute the function immediately
+            break;
+          } else if (event.type === "response.web_search_call.searching") {
+            this.emit("gptreply", {
+              partialResponseIndex: null,
+              partialResponse: 'searching the web•'
+            }, interactionCount);
 
-        } else if (event.type === "response.completed") {
-          // flush any remaining partialResponse
-          if (partialResponse.trim().length > 0) {
-            const gptReply = {
-              partialResponseIndex: this.partialResponseIndex,
-              partialResponse,
-            };
-            this.emit("gptreply", gptReply, interactionCount);
-            this.partialResponseIndex++;
-            partialResponse = "";
+          } else if (event.type === "response.completed") {
+            // flush any remaining partialResponse
+            if (partialResponse.trim().length > 0) {
+              const gptReply = {
+                partialResponseIndex: this.partialResponseIndex,
+                partialResponse,
+              };
+              this.emit("gptreply", gptReply, interactionCount);
+              this.partialResponseIndex++;
+              partialResponse = "";
+            }
+          } else if (event.type === "response.error") {
+            console.error("Responses stream error", event);
           }
-        } else if (event.type === "response.error") {
-          console.error("Responses stream error", event);
         }
+      } finally {
+        // Remove controller when this stream iteration completes or aborts
+        this.activeControllers.delete(abortController);
       }
 
       if (functionCallDone && functionName) {
@@ -199,6 +234,12 @@ End every sentence or natural pause with the symbol •
         }
       }
     } catch (err) {
+      const msg = err?.message || '';
+      const isAbort = err?.name === 'AbortError' || /aborted|abort/i.test(msg);
+      if (isAbort) {
+        console.log('GPT -> Aborted pending response streams');
+        return; // do not emit fallback on explicit abort
+      }
       console.error('OpenAI stream failed:', err?.message || err);
       console.log(JSON.stringify(this.userContext))
       // Fallback minimal message to keep the call flowing
