@@ -22,17 +22,21 @@ class StreamService extends EventEmitter {
   buffer (index, audio) {
     // Escape hatch for intro message, which doesn't have an index
     if(index === null) {
+      console.log(`Twilio -> sendAudio immediate`);
       this.sendAudio(audio);
     } else if(index === this.expectedAudioIndex) {
+      console.log(`Twilio -> sendAudio index: ${index}`);
       this.sendAudio(audio);
       this.expectedAudioIndex++;
 
       while(Object.prototype.hasOwnProperty.call(this.audioBuffer, this.expectedAudioIndex)) {
         const bufferedAudio = this.audioBuffer[this.expectedAudioIndex];
+        console.log(`Twilio -> sendAudio queued index: ${this.expectedAudioIndex}`);
         this.sendAudio(bufferedAudio);
         this.expectedAudioIndex++;
       }
     } else {
+      console.log(`Twilio -> queueing audio index: ${index}`);
       this.audioBuffer[index] = audio;
     }
   }
