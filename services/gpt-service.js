@@ -126,14 +126,23 @@ Do not return raw all-caps acronyms without periods unless they are pronounced a
             completeResponse += contentChunk;
             partialResponse += contentChunk;
 
-            if (contentChunk.trim().slice(-1) === '•') {
-              const gptReply = {
-                partialResponseIndex: this.partialResponseIndex,
-                partialResponse,
-              };
-              this.emit('gptreply', gptReply, interactionCount);
-              this.partialResponseIndex++;
-              partialResponse = '';
+            // Split on bullet character and process each part
+            if (contentChunk.includes('•')) {
+              const parts = partialResponse.split('•');
+              // All parts except the last are complete sentences
+              for (let i = 0; i < parts.length - 1; i++) {
+                const sentence = parts[i] + '•';
+                if (sentence.trim().length > 0) {
+                  const gptReply = {
+                    partialResponseIndex: this.partialResponseIndex,
+                    partialResponse: sentence,
+                  };
+                  this.emit('gptreply', gptReply, interactionCount);
+                  this.partialResponseIndex++;
+                }
+              }
+              // Keep the last part as it may be incomplete
+              partialResponse = parts[parts.length - 1];
             }
           } else if (event.type === 'response.output_item.added') {
             const item = event.item || {};
