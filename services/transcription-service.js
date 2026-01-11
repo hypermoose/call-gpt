@@ -15,14 +15,20 @@ class TranscriptionService extends EventEmitter {
       punctuate: true,
       interim_results: true,
       endpointing: 200,
-      utterance_end_ms: 1000,
+      utterance_end_ms: 500,
       vad_events: true
     });
 
     this.finalResult = '';
     this.speechFinal = false; // used to determine if we have seen speech_final=true indicating that deepgram detected a natural pause in the speakers speech. 
 
+    this.dgConnection.on(LiveTranscriptionEvents.SpeechStarted, () => {
+      console.log('STT -> Speech started detected'.green);
+    });
+
     this.dgConnection.on(LiveTranscriptionEvents.Open, () => {
+      console.log('STT -> Deepgram connection opened, VAD events enabled'.green);
+      
       this.dgConnection.on(LiveTranscriptionEvents.Transcript, (transcriptionEvent) => {
         const alternatives = transcriptionEvent.channel?.alternatives;
         let text = '';
@@ -70,10 +76,6 @@ class TranscriptionService extends EventEmitter {
       this.dgConnection.on(LiveTranscriptionEvents.Warning, (warning) => {
         console.error('STT -> deepgram warning');
         console.error(warning);
-      });
-
-      this.dgConnection.on(LiveTranscriptionEvents.SpeechStarted, () => {
-        console.log('STT -> Speech started detected'.green);
       });
 
       this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
