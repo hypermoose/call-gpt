@@ -14,8 +14,8 @@ class TranscriptionService extends EventEmitter {
       model: 'nova-2',
       punctuate: true,
       interim_results: true,
-      endpointing: 400,
-      utterance_end_ms: 500
+      endpointing: 200,
+      utterance_end_ms: 1000
     });
 
     this.finalResult = '';
@@ -71,9 +71,11 @@ class TranscriptionService extends EventEmitter {
         console.error(warning);
       });
 
+      /*
       this.dgConnection.on(LiveTranscriptionEvents.SpeechStarted, () => {
         console.log('STT -> Speech started detected'.green);
       });
+      */
 
       this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
         console.error('STT -> deepgram metadata');
