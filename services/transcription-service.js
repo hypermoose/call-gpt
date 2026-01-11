@@ -15,7 +15,8 @@ class TranscriptionService extends EventEmitter {
       punctuate: true,
       interim_results: true,
       endpointing: 200,
-      utterance_end_ms: 1000
+      utterance_end_ms: 1000,
+      vad_events: true
     });
 
     this.finalResult = '';
@@ -71,11 +72,9 @@ class TranscriptionService extends EventEmitter {
         console.error(warning);
       });
 
-      /*
       this.dgConnection.on(LiveTranscriptionEvents.SpeechStarted, () => {
         console.log('STT -> Speech started detected'.green);
       });
-      */
 
       this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
         console.error('STT -> deepgram metadata');
