@@ -2,6 +2,8 @@ require('dotenv').config();
 const { Buffer } = require('node:buffer');
 const EventEmitter = require('events');
 const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
 
 class TextToSpeechService extends EventEmitter {
   constructor() {
@@ -78,6 +80,26 @@ class TextToSpeechService extends EventEmitter {
   // Generate a short mu-law (G.711 u-law) beep at 8kHz and return base64 string
   async generateBeep() {
     try {
+      // Allow using an external μ-law file if provided via env or assets folder
+      const envPath = process.env.BEEP_FILE ? path.resolve(process.env.BEEP_FILE) : null;
+      const defaultPath = path.resolve(__dirname, '..', 'assets', 'wake.raw');
+
+      const tryPaths = [];
+      if (envPath) tryPaths.push(envPath);
+      tryPaths.push(defaultPath);
+
+      for (const p of tryPaths) {
+        try {
+          if (fs.existsSync(p)) {
+            const fileBuf = fs.readFileSync(p);
+            return fileBuf.toString('base64');
+          }
+        } catch (e) {
+          // ignore and try next
+        }
+      }
+
+      // Fallback: synthesize a pleasant 'bing' tone in μ-law
       const sampleRate = 8000;
       const duration = 0.09; // seconds
       const samples = Math.floor(sampleRate * duration);
