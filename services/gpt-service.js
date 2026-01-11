@@ -28,6 +28,7 @@ class GptService extends EventEmitter {
         role: "system",
         content: `
 You are a helpful AI agent.
+User input comes from speech-to-text transcription and may contain errors or misheard words. Use context to interpret the user's intent.
 Keep responses brief.
 Ask at most one question.
 Do not assume values.
