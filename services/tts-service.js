@@ -74,6 +74,37 @@ class TextToSpeechService extends EventEmitter {
       console.error(err);
     }
   }
+
+  // Generate a short mu-law (G.711 u-law) beep at 8kHz and return base64 string
+  async generateBeep() {
+    try {
+      const sampleRate = 8000;
+      const freq = 1000; // 1kHz beep
+      const duration = 0.12; // seconds
+      const samples = Math.floor(sampleRate * duration);
+      const mu = 255;
+
+      const buf = Buffer.alloc(samples);
+
+      for (let i = 0; i < samples; i++) {
+        const t = i / sampleRate;
+        const pcm = Math.sin(2 * Math.PI * freq * t) * 0.95; // - small headroom
+
+        const sign = pcm < 0 ? -1 : 1;
+        const magnitude = Math.log(1 + mu * Math.abs(pcm)) / Math.log(1 + mu);
+        const muSample = sign * magnitude;
+
+        // Map from [-1,1] to [0,255]
+        const byte = Math.round((muSample + 1) * 127.5) & 0xff;
+        buf[i] = byte;
+      }
+
+      return buf.toString('base64');
+    } catch (err) {
+      console.error('Error generating beep', err);
+      return null;
+    }
+  }
 }
 
 module.exports = { TextToSpeechService };

@@ -85,6 +85,10 @@ app.ws('/connection', (ws) => {
   
     transcriptionService.on('transcription', async (text) => {
       if (!text) { return; }
+
+      // Send a beep
+      streamService.buffer(null, await ttsService.generateBeep());
+
       console.log(`Interaction ${interactionCount} – STT -> GPT: ${text}`.yellow);
       gptService.completion(text, interactionCount);
       interactionCount += 1;
