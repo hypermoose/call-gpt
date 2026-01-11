@@ -26,6 +26,25 @@ class TranscriptionService extends EventEmitter {
       console.log('STT -> Speech started detected'.green);
     });
 
+    this.dgConnection.on(LiveTranscriptionEvents.Error, (error) => {
+      console.error('STT -> deepgram error'.red);
+      console.error(error);
+    });
+
+    this.dgConnection.on(LiveTranscriptionEvents.Warning, (warning) => {
+      console.error('STT -> deepgram warning'.yellow);
+      console.error(warning);
+    });
+
+     this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
+       console.error("STT -> deepgram metadata");
+       console.error(metadata);
+     });
+
+    this.dgConnection.on(LiveTranscriptionEvents.Close, () => {
+      console.log('STT -> Deepgram connection closed'.yellow);
+    });
+
     this.dgConnection.on(LiveTranscriptionEvents.Open, () => {
       console.log('STT -> Deepgram connection opened, VAD events enabled'.green);
       
@@ -66,25 +85,6 @@ class TranscriptionService extends EventEmitter {
         } else {
           this.emit('utterance', text);
         }
-      });
-
-      this.dgConnection.on(LiveTranscriptionEvents.Error, (error) => {
-        console.error('STT -> deepgram error');
-        console.error(error);
-      });
-
-      this.dgConnection.on(LiveTranscriptionEvents.Warning, (warning) => {
-        console.error('STT -> deepgram warning');
-        console.error(warning);
-      });
-
-      this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
-        console.error('STT -> deepgram metadata');
-        console.error(metadata);
-      });
-
-      this.dgConnection.on(LiveTranscriptionEvents.Close, () => {
-        console.log('STT -> Deepgram connection closed'.yellow);
       });
     });
   }
