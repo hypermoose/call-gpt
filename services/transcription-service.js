@@ -14,8 +14,9 @@ class TranscriptionService extends EventEmitter {
       model: 'nova-2',
       punctuate: true,
       interim_results: true,
-      endpointing: 200,
-      utterance_end_ms: 1000
+      endpointing: 400,
+      vad_events: true,
+      utterance_end_ms: 500
     });
 
     this.finalResult = '';
@@ -28,6 +29,8 @@ class TranscriptionService extends EventEmitter {
         if (alternatives) {
           text = alternatives[0]?.transcript;
         }
+
+        console.log(`STT -> Transcript received: ${text}, isFinal: ${transcriptionEvent.is_final}`.gray);
         
         // if we receive an UtteranceEnd and speech_final has not already happened then we should consider this the end of of the human speech and emit the transcription
         if (transcriptionEvent.type === 'UtteranceEnd') {
@@ -67,6 +70,10 @@ class TranscriptionService extends EventEmitter {
       this.dgConnection.on(LiveTranscriptionEvents.Warning, (warning) => {
         console.error('STT -> deepgram warning');
         console.error(warning);
+      });
+
+      this.dgConnection.on(LiveTranscriptionEvents.SpeechStarted, () => {
+        console.log('STT -> Speech started detected'.green);
       });
 
       this.dgConnection.on(LiveTranscriptionEvents.Metadata, (metadata) => {
