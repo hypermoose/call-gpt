@@ -24,6 +24,11 @@ class TranscriptionService extends EventEmitter {
 
     this.dgConnection.on(LiveTranscriptionEvents.SpeechStarted, () => {
       console.log('STT -> Speech started detected'.green);
+      this.emit('speechstarted');
+    });
+
+    this.dgConnection.on(LiveTranscriptionEvents.UtteranceEnd, () => {
+      console.log('STT -> Speech ended (UtteranceEnd)'.green);
     });
 
     this.dgConnection.on(LiveTranscriptionEvents.Error, (error) => {
@@ -55,7 +60,7 @@ class TranscriptionService extends EventEmitter {
           text = alternatives[0]?.transcript;
         }
 
-        console.log(`STT -> Transcript received: ${text}, isFinal: ${transcriptionEvent.is_final}`.gray);
+        console.log(`STT -> Transcript received: ${text}, type: ${transcriptionEvent.type}, isFinal: ${transcriptionEvent.is_final}`.gray);
         
         // if we receive an UtteranceEnd and speech_final has not already happened then we should consider this the end of of the human speech and emit the transcription
         if (transcriptionEvent.type === 'UtteranceEnd') {
